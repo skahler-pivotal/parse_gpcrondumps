@@ -1,0 +1,211 @@
+#!/usr/bin/perl -w
+#################################
+# parse_gpcrondumps
+#
+# 2016-01-14
+# SHK
+#
+# This program reads gpcrondump based files and
+# extracts the table information within them to
+# files. These files can then be used by gpfdist
+# or as input of another program to reimport data
+######################################
+
+use strict;
+use warnings;
+use Getopt::Std;
+
+my %options=();
+getopts("Dht:T:s:o:i:",\%options);
+
+if ( defined $options{h} ) {
+  do_help();
+  }
+
+#$options{t} = '20160114100848';
+#$options{i} = '/backup/db_dumps/20160114/';
+#$options{o} = '/datafiles/';
+
+my $DEBUG = 'off';
+$DEBUG = 'on' if ( defined $options{d} );
+
+unless ( defined $options{t} 
+      && defined $options{i}
+      && defined $options{o} ) {
+  print "Need to specifiy -t for timestamp of backup\n";
+  print "  -i and input directory/location of backup files\n";
+  print "  -o and output directory\n";
+  do_help();
+  }
+
+my ($datestamp) = $options{t} =~ /^(\d{8})/;
+print "DATESTAMP $datestamp\n" if ( $DEBUG eq 'on' );
+
+unless (-e $options{i} ) {
+  print "Backup file directory doesn't exist\n";
+  do_help();
+  }
+
+opendir DIR, $options{i} || die "Unable to open backup directory $options{i}: $!";
+my @filelist = readdir DIR;
+closedir DIR;
+
+foreach my $file ( @filelist ) {
+  next unless ( $file =~ /gp_dump_0_(\d+?)_($options{t})/ );
+  print "Parsing file: $file\n"  if ( $DEBUG eq 'on' );
+
+  my $file_stream;
+  if ( $file =~ /\.gz$/ ) {
+    $file_stream = "gunzip -c $options{i}/$file |";
+    }
+  else { 
+    $file_stream = "$options{i}/$file";
+    }
+
+  open(FILE,"$file_stream");
+  my $schema = '';
+  my $table = '';
+  my $indata = 'n';
+  my $data_filehandle;
+
+  while(<FILE>) {
+    my $line = $_;
+    chomp $line;
+    
+    if ( $line =~ /^-- Data for Name: (.*?); Type: TABLE DATA; Schema: (.*?); Owner: (.*?)$/ ) {
+      $table = $1;
+      $schema = $2;
+      }
+    elsif ( $line =~ /^COPY (.*?) \((.*?)\) FROM stdin;$/ ) {
+      $indata = 'y';
+      my $outfile_path = $options{o} . '/' . $schema . '.' . $table;
+      next if ( $options{s} && $options{s} ne $schema );
+      next if ( $options{T} && $options{T} ne "$schema.$table" );
+      open $data_filehandle, '>>', $outfile_path;
+      }
+    elsif ( $line =~ /^\\\.$/ ) {
+      $indata = 'n';
+      next if ( $options{s} && $options{s} ne $schema );
+      next if ( $options{T} && $options{T} ne "$schema.$table" );
+      close $data_filehandle;
+      }
+    elsif ( $indata eq 'y' ) {
+      next if ( $options{s} && $options{s} ne $schema );
+      next if ( $options{T} && $options{T} ne "$schema.$table" );
+      print $data_filehandle $line . "\n";
+      }
+
+    }
+  close FILE;
+
+  }
+
+
+exit;
+
+sub do_help {
+print q~
+COMMAND NAME: parse_gpcrondumps
+
+Takes the output of the multiple data files that make 
+up a gpcrondump and creates individual files for each
+table which contain the data for the table
+
+*****************************************************
+SYNOPSIS
+*****************************************************
+
+getopts("D?t:T:s:o:i:",\%options);
+parse_gpcrondumps -i <input dump file location>
+            -o <output file location>
+            -t <14 digit timestamp of dump to use>
+            [-s <schema name to filter for>]
+            [-T <schema.table name to filter for>]
+            [-D]
+
+parse_gpcrondumps -h
+
+
+*****************************************************
+DESCRIPTION
+*****************************************************
+
+The parse_gpcrondumps utility will parse a set of gpcrondump data
+files and extract the data from multiple dump files into singluar files
+name schema.table that containt the combined data.
+
+This utility can be used for create data files from dumps which can then
+be reimported back into the database or served with gpfdist to reload
+data into the database.
+
+*****************************************************
+OPTIONS
+*****************************************************
+
+-i <input dump file location>
+
+  The location of the files from the backup that need to be parsed.
+
+  This is a required flag.
+
+-o <output file location>
+
+  The location where files will be created in the schema.tablename format
+  which contain the combined data for that table from the various files.
+
+  This is a required flag.
+
+-t <14 digit timestamp of dump to use>
+
+  Dump files are identifiable by the 14 digit timestamp of the time the dump
+  was taken. This timestamp is needed in case multiple gpcrondumps are located
+  within the same location
+
+  This is a required flag.
+
+-s <schema>
+
+  Only data from the following schema will have data files created for
+  them. You may only specify one schema.
+
+-T <schema.tablename>
+
+  Only data from the schame and table combo will have data files created
+  for it. You may only specify one schema.table
+
+-D
+
+  Show debug information
+
+-h
+  
+  Display help
+
+*****************************************************
+EXAMPLES
+*****************************************************
+
+Dump all of the data for tables from a set of backup files 
+which comprise the 20160114100848 backup
+
+ $ parse_gpcrondumps -i /backup/db_dumps/20160114/ -o /datafiles/ -t 20160114100848
+
+Do the same thing, only just work with the data from the public schame
+
+ $ parse_gpcrondumps -i /backup/db_dumps/20160114/ -o /datafiles/ -t 20160114100848 -s public
+
+Do the same thing, only just work with the data from the foo table
+which exists in the public schema
+
+ $ parse_gpcrondumps -i /backup/db_dumps/20160114/ -o /datafiles/ -t 20160114100848 -T public.foo
+
+
+*****************************************************
+SEE ALSO
+*****************************************************
+
+gpcrondump
+~;
+  exit;
+  }
+
