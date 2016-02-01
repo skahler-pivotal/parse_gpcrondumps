@@ -8,13 +8,13 @@ table which contain the data for the table
 SYNOPSIS
 *****************************************************
 
-getopts("D?t:T:s:o:i:",\%options);
-parse_gpcrondumps -i <input dump file location>
+parse_gpcrondumps 
+            -i <input dump file location>
             -o <output file location>
             -t <14 digit timestamp of dump to use>
-            [-s <schema name to filter for>]
-            [-T <schema.table name to filter for>]
-            [-D]
+            [ -s <schema name to filter for> ]
+            [ -T <schema.table name to filter for> ]
+            [ -D ]
 
 parse_gpcrondumps -h
 
